@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Browser Projection Mapper</title>
+    <title>Browser Projection Mapper (Fixed)</title>
     <style>
+        /* (same styles as before) */
         body {
             margin: 0;
             overflow: hidden;
@@ -236,15 +237,27 @@
             input.multiple = true;
             input.onchange = (e) => {
                 const files = Array.from(e.target.files);
+                if (files.length === 0) return;
+                
+                // Store new files
                 files.forEach(file => {
                     const url = URL.createObjectURL(file);
                     const type = file.type.startsWith('video') ? 'video' : 'image';
                     mediaItems.push({ file, url, type, element: null });
                 });
+                
                 renderMediaList();
-                if (mediaItems.length > 0 && currentIndex === -1) {
+                
+                // If this is the first media ever added, load it automatically
+                if (mediaItems.length === files.length) {
                     currentIndex = 0;
                     loadMediaAtIndex(0);
+                } else {
+                    // Otherwise, just ensure the current index is still valid
+                    if (currentIndex >= mediaItems.length) {
+                        currentIndex = mediaItems.length - 1;
+                        loadMediaAtIndex(currentIndex);
+                    }
                 }
             };
             input.click();
@@ -289,7 +302,10 @@
                     item.element = video;
                 }
                 texture = new THREE.VideoTexture(item.element);
-                if (isPlaying) item.element.play().catch(() => {});
+                // If we were playing, resume playback
+                if (isPlaying) {
+                    item.element.play().catch(() => {});
+                }
             } else {
                 const loader = new THREE.TextureLoader();
                 texture = loader.load(item.url);
@@ -297,7 +313,15 @@
 
             plane.material.map = texture;
             plane.material.needsUpdate = true;
-            renderMediaList();
+            
+            // Update play button text based on current video playing state
+            if (item.type === 'video' && item.element) {
+                playPauseBtn.textContent = (isPlaying && !item.element.paused) ? '⏸' : '▶';
+            } else {
+                playPauseBtn.textContent = '▶'; // for images, play does nothing
+            }
+            
+            renderMediaList(); // refresh active class
         }
 
         // --- Transport controls ---
@@ -319,6 +343,7 @@
                 }
                 isPlaying = !isPlaying;
             }
+            // For images, do nothing (could add slideshow later)
         });
 
         prevBtn.addEventListener('click', () => {
@@ -348,7 +373,6 @@
                 media: mediaItems.map(item => ({
                     name: item.file.name,
                     type: item.type
-                    // We cannot store the file itself; user must reload media.
                 }))
             };
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(project));
@@ -377,7 +401,6 @@
                         }
                         if (project.media) {
                             alert('Media list restored. Please re-add the media files manually.');
-                            // Optionally clear old media
                             mediaItems = [];
                             renderMediaList();
                         }
@@ -401,6 +424,9 @@
         window.addEventListener('resize', () => {
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
+
+        // Initially no media, but corners are set.
+        console.log('Ready. Add media and drag yellow spheres.');
     </script>
 </body>
 </html>
