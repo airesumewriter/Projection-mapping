@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Browser Projection Mapper</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #111;
+            color: #fff;
+            font-family: sans-serif;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            background: rgba(30, 30, 30, 0.85);
+            padding: 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+            border: 1px solid #444;
+            width: 260px;
+            pointer-events: all;
+            user-select: none;
+        }
+        .panel {
+            margin-bottom: 20px;
+            border-bottom: 1px solid #555;
+            padding-bottom: 10px;
+        }
+        .panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #ccc;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        button {
+            background: #3a6ea5;
+            border: none;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-right: 5px;
+            margin-bottom: 5px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #4d8cd4;
+        }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        #mediaList {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+            max-height: 150px;
+            overflow-y: auto;
+            background: #222;
+            border-radius: 4px;
+        }
+        #mediaList li {
+            padding: 5px 8px;
+            border-bottom: 1px solid #333;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+        #mediaList li:hover {
+            background: #2a4a6a;
+        }
+        #mediaList li.active {
+            background: #3a6ea5;
+            font-weight: bold;
+        }
+        #mediaList li .icon {
+            margin-right: 6px;
+            font-size: 14px;
+        }
+        .transport {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        .transport button {
+            width: 40px;
+            height: 30px;
+            padding: 0;
+            font-size: 16px;
+            line-height: 1;
+        }
+        .transport label {
+            font-size: 12px;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <div class="panel">
+            <h3>Media</h3>
+            <button id="addMediaBtn">+ Add Media</button>
+            <ul id="mediaList"></ul>
+            <div class="transport">
+                <button id="prevBtn" disabled>⏮</button>
+                <button id="playPauseBtn">▶</button>
+                <button id="nextBtn" disabled>⏭</button>
+                <label><input type="checkbox" id="loopCheckbox" checked> Loop</label>
+            </div>
+        </div>
+        <div class="panel">
+            <h3>Project</h3>
+            <button id="saveProjectBtn">Save Project</button>
+            <button id="loadProjectBtn">Load Project</button>
+        </div>
+        <div class="panel">
+            <h3>Corner Handles</h3>
+            <p>Drag the colored spheres to warp the image.</p>
+        </div>
+    </div>
+    <canvas id="projectionCanvas"></canvas>
+
+    <!-- Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js"></script>
+
+    <script>
+        // --- Setup scene, camera, renderer ---
+        const canvas = document.getElementById('projectionCanvas');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111122);
+
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+
+        // --- Grid helper ---
+        const gridHelper = new THREE.GridHelper(2, 20, 0x888888, 0x444444);
+        gridHelper.position.z = -0.01;
+        scene.add(gridHelper);
+
+        // --- Warpable plane ---
+        const geometry = new THREE.PlaneGeometry(2, 2);
+        const material = new THREE.MeshBasicMaterial({ 
+            color: 0xffffff,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.9
+        });
+        const plane = new THREE.Mesh(geometry, material);
+        scene.add(plane);
+
+        // --- Corner handles (spheres) ---
+        const handleMaterial = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+        const corners = [
+            new THREE.Vector3(-1, -1, 0),
+            new THREE.Vector3( 1, -1, 0),
+            new THREE.Vector3( 1,  1, 0),
+            new THREE.Vector3(-1,  1, 0)
+        ];
+        const handles = corners.map(pos => {
+            const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16), handleMaterial);
+            sphere.position.copy(pos);
+            scene.add(sphere);
+            return sphere;
+        });
+
+        // --- State ---
+        let draggingIndex = -1;
+        let mediaItems = [];               // { file, url, type, element? }
+        let currentIndex = 0;
+        let isPlaying = false;
+        let loopEnabled = true;
+
+        // --- Helper: mouse to NDC ---
+        function getMouseNDC(event) {
+            const rect = canvas.getBoundingClientRect();
+            const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            return new THREE.Vector2(x, y);
+        }
+
+        // --- Raycasting for handles ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        canvas.addEventListener('mousedown', (event) => {
+            const ndc = getMouseNDC(event);
+            mouse.set(ndc.x, ndc.y);
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(handles);
+            if (intersects.length > 0) {
+                draggingIndex = handles.indexOf(intersects[0].object);
+                event.preventDefault();
+            }
+        });
+
+        canvas.addEventListener('mousemove', (event) => {
+            if (draggingIndex === -1) return;
+            const ndc = getMouseNDC(event);
+            const x = Math.max(-1, Math.min(1, ndc.x));
+            const y = Math.max(-1, Math.min(1, ndc.y));
+            corners[draggingIndex].set(x, y, 0);
+            handles[draggingIndex].position.set(x, y, 0);
+            updatePlaneVertices();
+        });
+
+        canvas.addEventListener('mouseup', () => draggingIndex = -1);
+        canvas.addEventListener('mouseleave', () => draggingIndex = -1);
+
+        function updatePlaneVertices() {
+            const array = plane.geometry.attributes.position.array;
+            // Order: bottom-left, bottom-right, top-right, top-left
+            array[0] = corners[0].x; array[1] = corners[0].y;
+            array[3] = corners[1].x; array[4] = corners[1].y;
+            array[6] = corners[2].x; array[7] = corners[2].y;
+            array[9] = corners[3].x; array[10] = corners[3].y;
+            plane.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // --- Media handling ---
+        document.getElementById('addMediaBtn').addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*,video/*';
+            input.multiple = true;
+            input.onchange = (e) => {
+                const files = Array.from(e.target.files);
+                files.forEach(file => {
+                    const url = URL.createObjectURL(file);
+                    const type = file.type.startsWith('video') ? 'video' : 'image';
+                    mediaItems.push({ file, url, type, element: null });
+                });
+                renderMediaList();
+                if (mediaItems.length > 0 && currentIndex === -1) {
+                    currentIndex = 0;
+                    loadMediaAtIndex(0);
+                }
+            };
+            input.click();
+        });
+
+        function renderMediaList() {
+            const list = document.getElementById('mediaList');
+            list.innerHTML = '';
+            mediaItems.forEach((item, idx) => {
+                const li = document.createElement('li');
+                li.className = idx === currentIndex ? 'active' : '';
+                li.innerHTML = `<span class="icon">${item.type === 'video' ? '🎬' : '🖼️'}</span> ${item.file.name}`;
+                li.addEventListener('click', () => {
+                    currentIndex = idx;
+                    loadMediaAtIndex(idx);
+                });
+                list.appendChild(li);
+            });
+            document.getElementById('prevBtn').disabled = (currentIndex <= 0);
+            document.getElementById('nextBtn').disabled = (currentIndex >= mediaItems.length - 1);
+        }
+
+        function loadMediaAtIndex(index) {
+            if (index < 0 || index >= mediaItems.length) return;
+            const item = mediaItems[index];
+
+            // Stop current video if any
+            if (plane.material.map && plane.material.map.isVideoTexture) {
+                const oldVideo = plane.material.map.image;
+                if (oldVideo) oldVideo.pause();
+            }
+
+            let texture;
+            if (item.type === 'video') {
+                if (!item.element) {
+                    const video = document.createElement('video');
+                    video.src = item.url;
+                    video.loop = loopEnabled;
+                    video.muted = true;
+                    video.crossOrigin = 'anonymous';
+                    video.load();
+                    item.element = video;
+                }
+                texture = new THREE.VideoTexture(item.element);
+                if (isPlaying) item.element.play().catch(() => {});
+            } else {
+                const loader = new THREE.TextureLoader();
+                texture = loader.load(item.url);
+            }
+
+            plane.material.map = texture;
+            plane.material.needsUpdate = true;
+            renderMediaList();
+        }
+
+        // --- Transport controls ---
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const loopCheckbox = document.getElementById('loopCheckbox');
+
+        playPauseBtn.addEventListener('click', () => {
+            if (mediaItems.length === 0) return;
+            const item = mediaItems[currentIndex];
+            if (item.type === 'video' && item.element) {
+                if (isPlaying) {
+                    item.element.pause();
+                    playPauseBtn.textContent = '▶';
+                } else {
+                    item.element.play().catch(() => {});
+                    playPauseBtn.textContent = '⏸';
+                }
+                isPlaying = !isPlaying;
+            }
+        });
+
+        prevBtn.addEventListener('click', () => {
+            if (currentIndex > 0) {
+                currentIndex--;
+                loadMediaAtIndex(currentIndex);
+            }
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (currentIndex < mediaItems.length - 1) {
+                currentIndex++;
+                loadMediaAtIndex(currentIndex);
+            }
+        });
+
+        loopCheckbox.addEventListener('change', (e) => {
+            loopEnabled = e.target.checked;
+            const item = mediaItems[currentIndex];
+            if (item && item.element) item.element.loop = loopEnabled;
+        });
+
+        // --- Project Save / Load ---
+        document.getElementById('saveProjectBtn').addEventListener('click', () => {
+            const project = {
+                corners: corners.map(v => ({ x: v.x, y: v.y })),
+                media: mediaItems.map(item => ({
+                    name: item.file.name,
+                    type: item.type
+                    // We cannot store the file itself; user must reload media.
+                }))
+            };
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(project));
+            const a = document.createElement('a');
+            a.href = dataStr;
+            a.download = "project.json";
+            a.click();
+        });
+
+        document.getElementById('loadProjectBtn').addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const project = JSON.parse(evt.target.result);
+                        if (project.corners) {
+                            project.corners.forEach((pos, i) => {
+                                corners[i].set(pos.x, pos.y, 0);
+                                handles[i].position.set(pos.x, pos.y, 0);
+                            });
+                            updatePlaneVertices();
+                        }
+                        if (project.media) {
+                            alert('Media list restored. Please re-add the media files manually.');
+                            // Optionally clear old media
+                            mediaItems = [];
+                            renderMediaList();
+                        }
+                    } catch (err) {
+                        alert('Invalid project file');
+                    }
+                };
+                reader.readAsText(file);
+            };
+            input.click();
+        });
+
+        // --- Animation loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // --- Resize handler ---
+        window.addEventListener('resize', () => {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
