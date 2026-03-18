@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Projection Mapper Pro</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+            letter-spacing: 0.3px;
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- Control Panel --- */
+        #controlPanel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 320px;
+            background: rgba(20, 25, 45, 0.95);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            padding: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            max-height: 90vh;
+        }
+
+        .panel-header {
+            background: linear-gradient(135deg, rgba(80, 140, 255, 0.15) 0%, rgba(150, 100, 255, 0.08) 100%);
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(100, 150, 255, 0.15);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-header h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #6eb7ff;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+            box-shadow: 0 0 10px #4caf50;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; }
+        }
+
+        .panel-content {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .panel-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .panel-content::-webkit-scrollbar-track {
+            background: rgba(100, 150, 255, 0.05);
+        }
+
+        .panel-content::-webkit-scrollbar-thumb {
+            background: rgba(100, 150, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        .panel-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(100, 150, 255, 0.5);
+        }
+
+        .section {
+            margin-bottom: 24px;
+        }
+
+        .section:last-child {
+            margin-bottom: 0;
+        }
+
+        .section-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #9db4ff;
+            margin: 0 0 12px 0;
+            font-weight: 600;
+        }
+
+        /* --- Buttons --- */
+        button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 14px;
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            background: linear-gradient(135deg, #5080ff 0%, #7060ff 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(80, 128, 255, 0.3);
+        }
+
+        button:hover:not(:disabled) {
+            background: linear-gradient(135deg, #6490ff 0%, #8070ff 100%);
+            box-shadow: 0 6px 20px rgba(80, 128, 255, 0.5);
+            transform: translateY(-2px);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background: linear-gradient(135deg, #404050 0%, #505060 100%);
+            box-shadow: none;
+        }
+
+        button.secondary {
+            background: rgba(100, 150, 255, 0.15);
+            color: #6eb7ff;
+            box-shadow: none;
+        }
+
+        button.secondary:hover:not(:disabled) {
+            background: rgba(100, 150, 255, 0.25);
+        }
+
+        button.danger {
+            background: rgba(255, 80, 80, 0.2);
+            color: #ff6b6b;
+        }
+
+        button.danger:hover:not(:disabled) {
+            background: rgba(255, 80, 80, 0.35);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* --- Media List --- */
+        #mediaList {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            border: 1px solid rgba(100, 150, 255, 0.15);
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(30, 40, 70, 0.5);
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        #mediaList li {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(100, 150, 255, 0.1);
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s ease;
+        }
+
+        #mediaList li:last-child {
+            border-bottom: none;
+        }
+
+        #mediaList li:hover {
+            background: rgba(80, 128, 255, 0.15);
+        }
+
+        #mediaList li.active {
+            background: rgba(80, 128, 255, 0.3);
+            border-left: 3px solid #6eb7ff;
+            padding-left: 11px;
+            color: #6eb7ff;
+            font-weight: 500;
+        }
+
+        .media-item-content {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .media-item-icon {
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .media-item-name {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .media-item-delete {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 4px;
+            box-shadow: none;
+            margin: 0;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+
+        .media-item-delete:hover {
+            opacity: 1;
+            transform: none;
+        }
+
+        /* --- Transport Controls --- */
+        .transport-controls {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            margin: 12px 0 0 0;
+        }
+
+        .transport-controls button {
+            flex: 1;
+            padding: 10px 8px;
+            font-size: 14px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 0;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #6eb7ff;
+        }
+
+        .checkbox-group label {
+            font-size: 12px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        /* --- Info Box --- */
+        .info-box {
+            background: rgba(100, 150, 255, 0.08);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 11px;
+            line-height: 1.6;
+            color: #a8c5ff;
+        }
+
+        .info-box strong {
+            color: #6eb7ff;
+        }
+
+        /* --- Corner Labels --- */
+        .corner-indicator {
+            position: absolute;
+            font-size: 12px;
+            font-weight: 700;
+            pointer-events: none;
+            color: #6eb7ff;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+            letter-spacing: 1px;
+            z-index: 50;
+        }
+
+        /* --- Responsive --- */
+        @media (max-width: 768px) {
+            #controlPanel {
+                width: 280px;
+                top: 10px;
+                left: 10px;
+            }
+
+            .section {
+                margin-bottom: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="controlPanel">
+        <div class="panel-header">
+            <h2>Projection Mapper</h2>
+            <div class="status-indicator"></div>
+        </div>
+
+        <div class="panel-content">
+            <!-- Media Section -->
+            <div class="section">
+                <div class="section-title">Media Library</div>
+                <button id="addMediaBtn" style="width: 100%;">+ Add Media</button>
+                <ul id="mediaList"></ul>
+            </div>
+
+            <!-- Transport Controls -->
+            <div class="section">
+                <div class="section-title">Playback</div>
+                <div class="transport-controls">
+                    <button id="prevBtn" disabled title="Previous (P)">\u23ee</button>
+                    <button id="playPauseBtn" style="flex: 2;" title="Play/Pause (Space)">\u25b6 Play</button>
+                    <button id="nextBtn" disabled title="Next (N)">\u23ed</button>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="loopCheckbox" checked>
+                    <label for="loopCheckbox">Loop playback</label>
+                </div>
+            </div>
+
+            <!-- Projection Controls -->
+            <div class="section">
+                <div class="section-title">Projection</div>
+                <button id="resetCornersBtn" class="secondary" style="width: 100%; margin-bottom: 8px;">\u21ba Reset Corners</button>
+                <div class="info-box">
+                    <strong>Tip:</strong> Drag the colored spheres to warp the image. Yellow = TL, Green = TR, Red = BR, Blue = BL.
+                </div>
+            </div>
+
+            <!-- Project Management -->
+            <div class="section">
+                <div class="section-title">Project</div>
+                <div class="button-group">
+                    <button id="saveProjectBtn" class="secondary" style="flex: 1;">Save</button>
+                    <button id="loadProjectBtn" class="secondary" style="flex: 1;">Load</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js"></script>
+
+    <script>
+        // ========================================
+        // SCENE SETUP
+        // ========================================
+        const canvas = document.getElementById('canvas');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0e27);
+
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+        // Grid
+        const gridHelper = new THREE.GridHelper(2, 20, 0x3a5a8a, 0x2a3a5a);
+        gridHelper.position.z = -0.01;
+        scene.add(gridHelper);
+
+        // ========================================
+        // WARPABLE PLANE
+        // ========================================
+        const planeGeometry = new THREE.PlaneGeometry(2, 2);
+        const planeMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 1
+        });
+        const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+        scene.add(plane);
+
+        // ========================================
+        // CORNER HANDLES
+        // ========================================
+        const cornerData = [
+            { pos: new THREE.Vector3(-1, -1, 0), color: 0xffaa00, label: 'TL' },
+            { pos: new THREE.Vector3(1, -1, 0), color: 0x00ff00, label: 'TR' },
+            { pos: new THREE.Vector3(1, 1, 0), color: 0xff0000, label: 'BR' },
+            { pos: new THREE.Vector3(-1, 1, 0), color: 0x0088ff, label: 'BL' }
+        ];
+
+        const corners = cornerData.map(d => d.pos.clone());
+        const handles = cornerData.map((data, i) => {
+            const material = new THREE.MeshBasicMaterial({ color: data.color });
+            const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 16), material);
+            sphere.position.copy(data.pos);
+            sphere.userData.label = data.label;
+            scene.add(sphere);
+            return sphere;
+        });
+
+        // ========================================
+        // STATE
+        // ========================================
+        let draggingIndex = -1;
+        let mediaItems = [];
+        let currentIndex = 0;
+        let isPlaying = false;
+        let loopEnabled = true;
+
+        // ========================================
+        // HELPERS
+        // ========================================
+        function getMouseNDC(event) {
+            const rect = canvas.getBoundingClientRect();
+            const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            return new THREE.Vector2(x, y);
+        }
+
+        function updatePlaneVertices() {
+            const array = plane.geometry.attributes.position.array;
+            array[0] = corners[0].x; array[1] = corners[0].y;
+            array[3] = corners[1].x; array[4] = corners[1].y;
+            array[6] = corners[2].x; array[7] = corners[2].y;
+            array[9] = corners[3].x; array[10] = corners[3].y;
+            plane.geometry.attributes.position.needsUpdate = true;
+        }
+
+        function resetCorners() {
+            cornerData.forEach((data, i) => {
+                corners[i].copy(data.pos);
+                handles[i].position.copy(data.pos);
+            });
+            updatePlaneVertices();
+        }
+
+        // ========================================
+        // RAYCASTING
+        // ========================================
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        canvas.addEventListener('mousedown', (e) => {
+            const ndc = getMouseNDC(e);
+            mouse.set(ndc.x, ndc.y);
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(handles);
+            if (intersects.length > 0) {
+                draggingIndex = handles.indexOf(intersects[0].object);
+                e.preventDefault();
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (draggingIndex === -1) return;
+            const ndc = getMouseNDC(e);
+            const x = Math.max(-1, Math.min(1, ndc.x));
+            const y = Math.max(-1, Math.min(1, ndc.y));
+            corners[draggingIndex].set(x, y, 0);
+            handles[draggingIndex].position.set(x, y, 0);
+            updatePlaneVertices();
+        });
+
+        canvas.addEventListener('mouseup', () => draggingIndex = -1);
+        canvas.addEventListener('mouseleave', () => draggingIndex = -1);
+
+        // ========================================
+        // MEDIA HANDLING
+        // ========================================
+        const addMediaBtn = document.getElementById('addMediaBtn');
+        const mediaList = document.getElementById('mediaList');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const loopCheckbox = document.getElementById('loopCheckbox');
+        const resetCornersBtn = document.getElementById('resetCornersBtn');
+
+        function renderMediaList() {
+            mediaList.innerHTML = '';
+            mediaItems.forEach((item, idx) => {
+                const li = document.createElement('li');
+                li.className = idx === currentIndex ? 'active' : '';
+                
+                const icon = document.createElement('span');
+                icon.className = 'media-item-icon';
+                icon.textContent = item.type === 'video' ? '\ud83c\udfac' : '\ud83d\uddbc\ufe0f';
+
+                const name = document.createElement('span');
+                name.className = 'media-item-name';
+                name.textContent = item.file.name;
+                name.title = item.file.name;
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'media-item-delete';
+                deleteBtn.textContent = '\u2715';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    removeMediaAtIndex(idx);
+                };
+
+                const content = document.createElement('div');
+                content.className = 'media-item-content';
+                content.appendChild(icon);
+                content.appendChild(name);
+
+                li.appendChild(content);
+                li.appendChild(deleteBtn);
+
+                li.addEventListener('click', () => {
+                    currentIndex = idx;
+                    loadMediaAtIndex(idx);
+                });
+
+                mediaList.appendChild(li);
+            });
+
+            prevBtn.disabled = currentIndex <= 0;
+            nextBtn.disabled = currentIndex >= mediaItems.length - 1;
+        }
+
+        function removeMediaAtIndex(idx) {
+            // Stop video if it's the current one
+            if (mediaItems[idx].element && mediaItems[idx].element.pause) {
+                mediaItems[idx].element.pause();
+            }
+            
+            // Revoke object URL
+            if (mediaItems[idx].url) {
+                URL.revokeObjectURL(mediaItems[idx].url);
+            }
+
+            mediaItems.splice(idx, 1);
